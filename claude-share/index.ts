@@ -110,15 +110,27 @@ async function getSystemName(): Promise<string> {
   return platform().getSystemName();
 }
 
+// VPN interface name prefixes: macOS (utun/ppp/ipsec), Linux (tun/tap/wg/ppp).
+const VPN_IFACE_PREFIXES = ["utun", "tun", "tap", "wg", "ppp", "ipsec"];
+
+function isVpnIface(name: string): boolean {
+  const n = name.toLowerCase();
+  return VPN_IFACE_PREFIXES.some((p) => n.startsWith(p));
+}
+
 function getLanIp(): string | null {
-  for (const ifaces of Object.values(os.networkInterfaces())) {
+  let fallback: string | null = null;
+
+  for (const [name, ifaces] of Object.entries(os.networkInterfaces())) {
     for (const iface of ifaces ?? []) {
-      if (iface.family === "IPv4" && !iface.internal) {
-        return iface.address;
-      }
+      if (iface.family !== "IPv4" || iface.internal) continue;
+      if (iface.address.startsWith("169.254.")) continue; // link-local, not usable
+      if (isVpnIface(name)) return iface.address; // VPN wins outright
+      fallback ??= iface.address;
     }
   }
-  return null;
+
+  return fallback;
 }
 
 async function promptDuration(): Promise<number> {
